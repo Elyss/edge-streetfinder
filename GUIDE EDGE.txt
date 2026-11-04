@@ -19,9 +19,13 @@ les autres applications et le point d'entrée continuent de tourner.
 MISE EN PLACE (une seule fois)
 ------------------------------------------------------------------------------------------
 
-Sur le serveur, ce dossier se place à côté des dépôts : ~/StreetFinder, ~/PascalQuijoux,
-~/Edge_STREETFINDER :
-       git clone https://github.com/Elyss/edge-streetfinder.git Edge_STREETFINDER
+Sur le serveur, les dépôts sont dans /opt : /opt/streetfinder, /opt/pascal-quijoux,
+/opt/edge-streetfinder. /opt appartient à root : créer les dossiers avec sudo, les donner à
+l'utilisateur, puis cloner (sans sudo) :
+       sudo mkdir /opt/edge-streetfinder /opt/pascal-quijoux
+       sudo chown $USER:$USER /opt/edge-streetfinder /opt/pascal-quijoux
+       git clone https://github.com/Elyss/edge-streetfinder.git /opt/edge-streetfinder
+       git clone https://github.com/Elyss/pascal-quijoux.git /opt/pascal-quijoux
 
 0. DNS : les enregistrements A (et AAAA s'il y en a) de pascal-quijoux.fr et
    www.pascal-quijoux.fr doivent pointer vers l'IP du serveur. Vérifier avec :
@@ -31,19 +35,19 @@ Sur le serveur, ce dossier se place à côté des dépôts : ~/StreetFinder, ~/P
        docker network create edge
 
 2. Basculer StreetFinder derrière le point d'entrée (son Caddy libère 80/443) :
-       cd ~/StreetFinder && git pull
+       cd /opt/streetfinder && git pull
        docker compose -f docker-compose-prod.yml up -d --no-deps reverse-proxy
 
    À partir d'ici et jusqu'à l'étape 3, delay-lama.fr est injoignable (quelques secondes).
 
 3. Démarrer le point d'entrée :
-       cd ~/Edge_STREETFINDER && docker compose up -d
+       cd /opt/edge-streetfinder && docker compose up -d
        docker compose logs -f edge      (attendre « certificate obtained successfully »)
 
    Vérifier : https://delay-lama.fr répond, https://www.delay-lama.fr redirige.
 
 4. Déployer le portfolio :
-       cd ~/PascalQuijoux        (cloner le dépôt et créer le .env depuis .env.example)
+       cd /opt/pascal-quijoux     (créer d'abord le .env : cp .env.example .env, puis le remplir)
        ./run.sh pull prod
 
    Vérifier : https://pascal-quijoux.fr et https://pascal-quijoux.fr/gestion
@@ -92,7 +96,7 @@ Boucle de redirection, ou formulaires refusés (CSRF) sur une application
 REVENIR EN ARRIÈRE (StreetFinder seul, sans point d'entrée)
 ------------------------------------------------------------------------------------------
 
-    cd ~/Edge_STREETFINDER && docker compose down
-    cd ~/StreetFinder && git checkout <version précédente> -- docker-compose-prod.yml Caddyfile
+    cd /opt/edge-streetfinder && docker compose down
+    cd /opt/streetfinder && git checkout <version précédente> -- docker-compose-prod.yml Caddyfile
     docker compose -f docker-compose-prod.yml up -d --no-deps reverse-proxy
 Le portfolio est alors injoignable de l'extérieur.
