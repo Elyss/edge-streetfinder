@@ -1,0 +1,28 @@
+# Point d'entrée commun du serveur StreetFinder : voir « GUIDE EDGE.txt »
+services:
+  edge:
+    image: caddy:2-alpine
+    container_name: edge
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificats de tous les domaines : doit persister entre les redémarrages
+      - edge_data:/data
+      - edge_config:/config
+    networks:
+      - edge
+    restart: unless-stopped
+
+volumes:
+  edge_data:
+  edge_config:
+
+# Réseau partagé avec les Caddy internes des applications, créé une fois :
+#   docker network create edge
+# Externe : arrêter le point d'entrée ne le supprime pas, et inversement.
+networks:
+  edge:
+    external: true

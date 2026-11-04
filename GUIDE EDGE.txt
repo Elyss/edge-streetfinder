@@ -1,0 +1,98 @@
+POINT D'ENTRÉE COMMUN DU SERVEUR STREETFINDER (dossier Edge_STREETFINDER)
+
+Même principe qu'Edge_MONESPACE pour BureauVirtuel et Creascope : un seul conteneur, « edge »,
+écoute sur les ports 80 et 443 du serveur. Il obtient et renouvelle seul les certificats
+Let's Encrypt, puis transmet chaque domaine au Caddy interne de son application, qui n'écoute
+plus qu'en HTTP sur le réseau Docker « edge ».
+
+    Internet ─► edge (80/443, certificats)
+                 ├─ delay-lama.fr       ─► streetfinder-reverse-proxy:80   (dépôt StreetFinder)
+                 ├─ www.delay-lama.fr, elyss.fr ─► redirection vers delay-lama.fr
+                 ├─ pascal-quijoux.fr   ─► quijoux-reverse-proxy:80        (dépôt PascalQuijoux)
+                 └─ www.pascal-quijoux.fr ─► redirection vers pascal-quijoux.fr
+
+Chaque application se déploie seule, comme avant (./run.sh pull prod dans son dossier) :
+les autres applications et le point d'entrée continuent de tourner.
+
+
+------------------------------------------------------------------------------------------
+MISE EN PLACE (une seule fois)
+------------------------------------------------------------------------------------------
+
+Sur le serveur, ce dossier se place à côté des dépôts : ~/StreetFinder, ~/PascalQuijoux,
+~/Edge_STREETFINDER :
+       git clone https://github.com/Elyss/edge-streetfinder.git Edge_STREETFINDER
+
+0. DNS : les enregistrements A (et AAAA s'il y en a) de pascal-quijoux.fr et
+   www.pascal-quijoux.fr doivent pointer vers l'IP du serveur. Vérifier avec :
+       dig +short pascal-quijoux.fr
+
+1. Créer le réseau partagé :
+       docker network create edge
+
+2. Basculer StreetFinder derrière le point d'entrée (son Caddy libère 80/443) :
+       cd ~/StreetFinder && git pull
+       docker compose -f docker-compose-prod.yml up -d --no-deps reverse-proxy
+
+   À partir d'ici et jusqu'à l'étape 3, delay-lama.fr est injoignable (quelques secondes).
+
+3. Démarrer le point d'entrée :
+       cd ~/Edge_STREETFINDER && docker compose up -d
+       docker compose logs -f edge      (attendre « certificate obtained successfully »)
+
+   Vérifier : https://delay-lama.fr répond, https://www.delay-lama.fr redirige.
+
+4. Déployer le portfolio :
+       cd ~/PascalQuijoux        (cloner le dépôt et créer le .env depuis .env.example)
+       ./run.sh pull prod
+
+   Vérifier : https://pascal-quijoux.fr et https://pascal-quijoux.fr/gestion
+
+
+------------------------------------------------------------------------------------------
+EXPLOITATION
+------------------------------------------------------------------------------------------
+
+Ajouter un domaine ou une application : ajouter un bloc au Caddyfile, puis
+    docker compose exec edge caddy reload --config /etc/caddy/Caddyfile
+(si la modification n'est pas prise en compte : docker compose restart edge)
+Le conteneur interne de l'application doit être sur le réseau « edge ».
+
+Journaux :           docker compose logs -f edge
+Certificats :        dans le volume edge_data (ne jamais le supprimer : Let's Encrypt limite
+                     le nombre de certificats délivrés par semaine)
+
+
+------------------------------------------------------------------------------------------
+DÉPANNAGE
+------------------------------------------------------------------------------------------
+
+« port is already allocated » au démarrage du point d'entrée
+    Un autre conteneur publie encore 80/443 (souvent l'ancien Caddy de StreetFinder) :
+        docker ps --format '{{.Names}}  {{.Ports}}' | grep -E ':(80|443)->'
+    Refaire l'étape 2 pour l'application concernée.
+
+502 Bad Gateway sur un domaine
+    Le Caddy interne de l'application est arrêté ou n'est pas sur le réseau « edge » :
+        docker network inspect edge --format '{{range .Containers}}{{.Name}} {{end}}'
+    Doivent apparaître : edge, streetfinder-reverse-proxy, quijoux-reverse-proxy.
+
+Pas de certificat pour un domaine
+    DNS pas encore propagé ou faux : vérifier « dig +short <domaine> », puis
+        docker compose restart edge
+    Les autres domaines ne sont pas affectés.
+
+Boucle de redirection, ou formulaires refusés (CSRF) sur une application
+    Le Caddy interne ne fait pas confiance au point d'entrée : il doit contenir
+        servers { trusted_proxies static private_ranges }
+    (StreetFinder : variable TRUSTED_PROXIES=private_ranges dans docker-compose-prod.yml).
+
+
+------------------------------------------------------------------------------------------
+REVENIR EN ARRIÈRE (StreetFinder seul, sans point d'entrée)
+------------------------------------------------------------------------------------------
+
+    cd ~/Edge_STREETFINDER && docker compose down
+    cd ~/StreetFinder && git checkout <version précédente> -- docker-compose-prod.yml Caddyfile
+    docker compose -f docker-compose-prod.yml up -d --no-deps reverse-proxy
+Le portfolio est alors injoignable de l'extérieur.

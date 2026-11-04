@@ -1,0 +1,30 @@
+# Point d'entrée commun du serveur StreetFinder.
+#
+# Seul conteneur à écouter sur 80/443 : il obtient et renouvelle les certificats Let's Encrypt
+# de tous les domaines ci-dessous, redirige HTTP vers HTTPS, puis transmet chaque domaine au
+# Caddy interne de son application (HTTP, réseau Docker « edge », joint par nom de conteneur).
+#
+# Il transmet l'IP du visiteur (X-Forwarded-For) et le protocole d'origine (X-Forwarded-Proto) :
+# les Caddy internes lui font confiance (trusted_proxies private_ranges).
+#
+# Après modification : docker compose exec edge caddy reload --config /etc/caddy/Caddyfile
+
+# ---------------------------------------------------------------- StreetFinder (Delay Lama)
+delay-lama.fr {
+	reverse_proxy streetfinder-reverse-proxy:80
+}
+
+# www et ancien domaine : redirigés vers le domaine principal en gardant le chemin
+# (liens de tableaux partagés, invitations…). 302 : temporaire, non mis en cache.
+www.delay-lama.fr, elyss.fr {
+	redir https://delay-lama.fr{uri} 302
+}
+
+# ---------------------------------------------------------------- Portfolio Pascal Quijoux
+pascal-quijoux.fr {
+	reverse_proxy quijoux-reverse-proxy:80
+}
+
+www.pascal-quijoux.fr {
+	redir https://pascal-quijoux.fr{uri} 301
+}
